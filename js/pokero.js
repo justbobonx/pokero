@@ -3,7 +3,9 @@
 const BOARD_BG = "#0d3b2e";
 const HAND_SIZE = 5;
 const CARD_ASPECT = 2.5 / 3.5;
-const CARD_GAP = 10;
+const CARD_GAP = 10; // biggest space between cards (desktop)
+const CARD_GAP_MIN = 4; // smallest space between cards (narrow phones)
+const CARD_GAP_VW = 0.015; // space between cards as a share of screen width
 const CARD_MAX_H = 280;
 const HAND_SIDE_PAD = 2;
 const BUTTON_ZONE = 0.34;
@@ -202,6 +204,8 @@ function dealRound() {
   startTimer();
 }
 
+let cardGap = CARD_GAP; // current space between cards, set in layout()
+
 function layout() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -209,14 +213,16 @@ function layout() {
   const topZone = canvas.height * (1 - BUTTON_ZONE);
   const usableW = canvas.width - HAND_SIDE_PAD * 2;
   const usableH = topZone - HUD_PAD;
+  // shrink the space between cards on narrow screens
+  cardGap = Math.round(Math.max(CARD_GAP_MIN, Math.min(CARD_GAP, canvas.width * CARD_GAP_VW)));
   cardH = Math.min(CARD_MAX_H, Math.floor(usableH * 0.85));
   cardW = Math.floor(cardH * CARD_ASPECT);
-  const rowW = cardW * HAND_SIZE + CARD_GAP * (HAND_SIZE - 1);
+  const rowW = cardW * HAND_SIZE + cardGap * (HAND_SIZE - 1);
   if (rowW > usableW) {
-    cardW = Math.floor((usableW - CARD_GAP * (HAND_SIZE - 1)) / HAND_SIZE);
+    cardW = Math.floor((usableW - cardGap * (HAND_SIZE - 1)) / HAND_SIZE);
     cardH = Math.floor(cardW / CARD_ASPECT);
   }
-  handX = Math.floor((canvas.width - (cardW * HAND_SIZE + CARD_GAP * (HAND_SIZE - 1))) / 2);
+  handX = Math.floor((canvas.width - (cardW * HAND_SIZE + cardGap * (HAND_SIZE - 1))) / 2);
   handY = HUD_PAD + Math.floor((usableH - cardH) / 2);
 }
 
@@ -226,7 +232,7 @@ function draw() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   if (mode !== MODE_CALL) return;
   for (let i = 0; i < hand.length; i++) {
-    hand[i].draw(ctx, handX + i * (cardW + CARD_GAP), handY, cardW, cardH);
+    hand[i].draw(ctx, handX + i * (cardW + cardGap), handY, cardW, cardH);
   }
 }
 
@@ -296,7 +302,7 @@ function buildButtons() {
     btn.type = "button";
     btn.dataset.hand = type;
     btn.textContent = HAND_LABELS[type];
-    if (type === "straight") btn.classList.add("hand-straight");
+    if (type === "straight" || type === "straight_flush") btn.classList.add("hand-straight");
     btn.addEventListener("click", function () {
       onGuess(type, btn);
     });
