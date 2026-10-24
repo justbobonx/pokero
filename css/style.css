@@ -1,0 +1,74 @@
+html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        height: 100dvh;
+        overflow: hidden;
+        background: #0d3b2e;
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
+        font-family: system-ui, sans-serif;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: #0d3b2e;
+        touch-action: none;
+      }
+
+      #choices {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 2;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        grid-template-rows: repeat(2, 1fr);
+        gap: 12px;
+        padding: 10px 10px max(10px, env(safe-area-inset-bottom));
+        padding-left: max(10px, env(safe-area-inset-left));
+        padding-right: max(10px, env(safe-area-inset-right));
+        box-sizing: border-box;
+        height: 34%;
+        pointer-events: none;
+      }
+
+      #choices button {
+        pointer-events: auto;
+        margin: 0;
+        padding: 6px 4px;
+        border: 4px solid #f2f2f2;
+        border-radius: 8px;
+        background: #0a2f25;
+        color: #f2f2f2;
+        font: 700 clamp(16px, 4.2vw, 36px)/1.1 system-ui, sans-serif;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        hyphens: auto;
+      }
+
+      #choices button:disabled {
+        cursor: default;
+      }
+
+      #choices button.right {
+        background: #2f9e55;
+        border-color: #7dffb3;
+      }
+
+      #choices button.wrong {
+        background: #b33a3a;
+        border-color: #ff8a8a;
+      }
+
+      #choices button.answer {
+        background: #c9a227;
+        border-color: #ffe08a;
+        color: #111111;
+      }
