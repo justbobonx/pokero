@@ -296,6 +296,7 @@ function buildButtons() {
     btn.type = "button";
     btn.dataset.hand = type;
     btn.textContent = HAND_LABELS[type];
+    if (type === "straight") btn.classList.add("hand-straight");
     btn.addEventListener("click", function () {
       onGuess(type, btn);
     });

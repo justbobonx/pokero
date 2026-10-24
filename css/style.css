@@ -109,25 +109,33 @@ canvas {
   font: 700 clamp(20px, 5vw, 28px)/1 system-ui, sans-serif;
 }
 
-#hi,
-#score {
-  pointer-events: none;
-  font: 700 clamp(18px, 4.2vw, 32px)/1 system-ui, sans-serif;
-  letter-spacing: 0.12em;
-  color: #f2f2f2;
-  white-space: nowrap;
-}
-
-#hi {
+#hearts {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
+  pointer-events: none;
+  color: #cc3333;
+  font: 700 clamp(18px, 4.2vw, 32px)/1 system-ui, sans-serif;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
 }
 
-#hearts {
-  color: #cc3333;
-  letter-spacing: 0.06em;
-  margin-left: 0.25em;
+#hud-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  pointer-events: none;
+}
+
+#hi,
+#score {
+  pointer-events: none;
+  font: 700 clamp(16px, 3.6vw, 28px)/1 system-ui, sans-serif;
+  letter-spacing: 0.12em;
+  color: #f2f2f2;
+  white-space: nowrap;
+  text-align: right;
 }
 
 #choices {
@@ -160,6 +168,10 @@ canvas {
   white-space: normal;
   overflow-wrap: anywhere;
   hyphens: auto;
+}
+
+#choices button.hand-straight {
+  font-size: clamp(13px, 3.4vw, 30px);
 }
 
 #choices button:disabled {
