@@ -10,8 +10,11 @@ const BUTTON_ZONE = 0.34;
 const HUD_PAD = 56;
 const FEEDBACK_MS = 1000;
 const ROUND_MS_START = 5000;
-const ROUND_MS_FLOOR = 2000;
+const ROUND_MS_FLOOR = 1000;
 const ROUND_MS_DECAY = 0.97;
+const ROUND_MS_MISS = 1.1;
+const MAX_HEARTS = 3;
+const HI_KEY = "pokero_call_hi";
 
 const MODE_TITLE = "title";
 const MODE_CALL = "call";
@@ -21,8 +24,9 @@ const ctx = canvas.getContext("2d");
 const elChoices = document.getElementById("choices");
 const elTitle = document.getElementById("title-screen");
 const elHud = document.getElementById("hud");
-const elScoreRight = document.getElementById("score-right");
-const elScoreWrong = document.getElementById("score-wrong");
+const elScoreValue = document.getElementById("score-value");
+const elHearts = document.getElementById("hearts");
+const elHiValue = document.getElementById("hi-value");
 const elBack = document.getElementById("btn-back");
 const elCall = document.getElementById("btn-call");
 const elPick = document.getElementById("btn-pick");
@@ -35,8 +39,10 @@ let discard = [];
 let hand = [];
 let answer = null;
 let locked = false;
-let rightCount = 0;
-let wrongCount = 0;
+let gameOver = false;
+let score = 0;
+let hearts = MAX_HEARTS;
+let hiScore = 0;
 let cardW = 0;
 let cardH = 0;
 let handX = 0;
@@ -45,6 +51,18 @@ let feedbackTimer = 0;
 let roundStarted = 0;
 let timerRaf = 0;
 let roundMs = ROUND_MS_START;
+
+function loadHi() {
+  const n = parseInt(localStorage.getItem(HI_KEY) || "0", 10);
+  hiScore = n > 0 ? n : 0;
+}
+
+function saveHi() {
+  if (score > hiScore) {
+    hiScore = score;
+    localStorage.setItem(HI_KEY, String(hiScore));
+  }
+}
 
 function makeDeck() {
   const out = [];
@@ -62,9 +80,12 @@ function resetShoe() {
   shuffleDeck(deck);
 }
 
-function paintScore() {
-  elScoreRight.textContent = String(rightCount);
-  elScoreWrong.textContent = String(wrongCount);
+function paintHud() {
+  elHiValue.textContent = String(hiScore);
+  elScoreValue.textContent = String(score);
+  let h = "";
+  for (let i = 0; i < hearts; i++) h += "♥";
+  elHearts.textContent = h;
 }
 
 function clearFeedback() {
@@ -74,7 +95,6 @@ function clearFeedback() {
     buttons[i].disabled = false;
   }
 }
-
 
 function stopTimer() {
   if (timerRaf) {
@@ -90,7 +110,7 @@ function paintTimer(frac) {
 
 function tickTimer() {
   timerRaf = 0;
-  if (mode !== MODE_CALL || locked) return;
+  if (mode !== MODE_CALL || locked || gameOver) return;
   const left = 1 - (Date.now() - roundStarted) / roundMs;
   paintTimer(left);
   if (left <= 0) {
@@ -100,10 +120,6 @@ function tickTimer() {
   timerRaf = requestAnimationFrame(tickTimer);
 }
 
-function decayRoundMs() {
-  roundMs = Math.max(ROUND_MS_FLOOR, roundMs * ROUND_MS_DECAY);
-}
-
 function startTimer() {
   stopTimer();
   roundStarted = Date.now();
@@ -111,20 +127,30 @@ function startTimer() {
   timerRaf = requestAnimationFrame(tickTimer);
 }
 
-function onTimeout() {
-  if (mode !== MODE_CALL || locked || !answer) return;
+function decayRoundMs() {
+  roundMs = Math.max(ROUND_MS_FLOOR, roundMs * ROUND_MS_DECAY);
+}
+
+function bumpRoundMs() {
+  roundMs = roundMs * ROUND_MS_MISS;
+}
+
+function endGame() {
+  gameOver = true;
   locked = true;
   stopTimer();
-  wrongCount += 1;
-  paintScore();
+  saveHi();
+  paintHud();
   const buttons = elChoices.querySelectorAll("button");
   for (let i = 0; i < buttons.length; i++) buttons[i].disabled = true;
-  const correct = elChoices.querySelector('button[data-hand="' + answer + '"]');
-  if (correct) correct.classList.add("answer");
+}
+
+function afterRound(advance) {
   if (feedbackTimer) clearTimeout(feedbackTimer);
   feedbackTimer = setTimeout(function () {
     feedbackTimer = 0;
     if (mode !== MODE_CALL) return;
+    if (gameOver || !advance) return;
     decayRoundMs();
     dealRound();
     layout();
@@ -132,7 +158,32 @@ function onTimeout() {
   }, FEEDBACK_MS);
 }
 
+function registerMiss() {
+  bumpRoundMs();
+  hearts -= 1;
+  if (hearts < 0) hearts = 0;
+  paintHud();
+  if (hearts <= 0) {
+    endGame();
+    return false;
+  }
+  return true;
+}
+
+function onTimeout() {
+  if (mode !== MODE_CALL || locked || !answer || gameOver) return;
+  locked = true;
+  stopTimer();
+  const buttons = elChoices.querySelectorAll("button");
+  for (let i = 0; i < buttons.length; i++) buttons[i].disabled = true;
+  const correct = elChoices.querySelector('button[data-hand="' + answer + '"]');
+  if (correct) correct.classList.add("answer");
+  const alive = registerMiss();
+  afterRound(alive);
+}
+
 function dealRound() {
+  if (gameOver) return;
   locked = false;
   clearFeedback();
   const type = randomHand();
@@ -186,6 +237,7 @@ function showTitle() {
   }
   mode = MODE_TITLE;
   locked = false;
+  gameOver = false;
   hand = [];
   answer = null;
   stopTimer();
@@ -199,10 +251,12 @@ function showTitle() {
 
 function startCallIt() {
   mode = MODE_CALL;
-  rightCount = 0;
-  wrongCount = 0;
+  score = 0;
+  hearts = MAX_HEARTS;
+  gameOver = false;
   roundMs = ROUND_MS_START;
-  paintScore();
+  loadHi();
+  paintHud();
   resetShoe();
   elTitle.hidden = true;
   elHud.hidden = false;
@@ -214,30 +268,24 @@ function startCallIt() {
 }
 
 function onGuess(type, btn) {
-  if (mode !== MODE_CALL || locked || !answer) return;
+  if (mode !== MODE_CALL || locked || !answer || gameOver) return;
   locked = true;
   stopTimer();
   const buttons = elChoices.querySelectorAll("button");
   for (let i = 0; i < buttons.length; i++) buttons[i].disabled = true;
   if (type === answer) {
-    rightCount += 1;
+    score += 1;
+    saveHi();
+    paintHud();
     btn.classList.add("right");
-  } else {
-    wrongCount += 1;
-    btn.classList.add("wrong");
-    const correct = elChoices.querySelector('button[data-hand="' + answer + '"]');
-    if (correct) correct.classList.add("answer");
+    afterRound(true);
+    return;
   }
-  paintScore();
-  if (feedbackTimer) clearTimeout(feedbackTimer);
-  feedbackTimer = setTimeout(function () {
-    feedbackTimer = 0;
-    if (mode !== MODE_CALL) return;
-    decayRoundMs();
-    dealRound();
-    layout();
-    draw();
-  }, FEEDBACK_MS);
+  btn.classList.add("wrong");
+  const correct = elChoices.querySelector('button[data-hand="' + answer + '"]');
+  if (correct) correct.classList.add("answer");
+  const alive = registerMiss();
+  afterRound(alive);
 }
 
 function buildButtons() {
@@ -260,6 +308,7 @@ function onViewport() {
   draw();
 }
 
+loadHi();
 buildButtons();
 showTitle();
 

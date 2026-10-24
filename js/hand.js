@@ -20,15 +20,15 @@ const HAND_TYPES = [
   HAND_PAIR,
 ];
 
-const HAND_WEIGHTS = [1, 2, 3, 4, 5, 6, 7, 8];
+const HAND_WEIGHTS = [1, 2, 2, 3, 3, 4, 5, 5];
 
 const HAND_LABELS = {
   straight_flush: "Straight Flush",
-  quads: "4 of a kind",
+  quads: "4 of a Kind",
   full_house: "Full House",
   flush: "Flush",
   straight: "Straight",
-  trips: "3 of a kind",
+  trips: "3 of a Kind",
   two_pair: "Two pair",
   pair: "Pair",
 };
