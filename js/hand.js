@@ -34,6 +34,7 @@ const HAND_LABELS = {
 };
 
 const HAND_BUILD_TRIES = 40;
+const HAND_EXTRAS_TRIES = 48;
 
 function rankValue(rank) {
   if (rank === "A") return 14;
@@ -131,20 +132,13 @@ function takeIndices(deck, indices) {
   return out;
 }
 
+function returnCards(deck, cards) {
+  for (let i = 0; i < cards.length; i++) deck.push(cards[i]);
+}
+
 function sameSuit(cards) {
   for (let i = 1; i < cards.length; i++) if (cards[i].suit !== cards[0].suit) return false;
   return true;
-}
-
-function isStraightValues(values) {
-  const uniq = values.slice().sort(function (a, b) {
-    return a - b;
-  });
-  const u = [];
-  for (let i = 0; i < uniq.length; i++) if (u.indexOf(uniq[i]) < 0) u.push(uniq[i]);
-  if (u.length !== 5) return false;
-  if (u[4] - u[0] === 4) return true;
-  return u[0] === 2 && u[1] === 3 && u[2] === 4 && u[3] === 5 && u[4] === 14;
 }
 
 function straightRankSets() {
@@ -160,6 +154,38 @@ function straightRankSets() {
     ["9", "10", "J", "Q", "K"],
     ["10", "J", "Q", "K", "A"],
   ];
+}
+
+/** Pull side cards of different ranks, never matching a locked rank. */
+function takeDistinctKickers(deck, count, blockedRanks) {
+  const blocked = {};
+  for (let i = 0; i < blockedRanks.length; i++) blocked[blockedRanks[i]] = true;
+  const idxs = [];
+  const seen = {};
+  for (let d = 0; d < deck.length && idxs.length < count; d++) {
+    const r = deck[d].rank;
+    if (blocked[r] || seen[r]) continue;
+    seen[r] = true;
+    idxs.push(d);
+  }
+  if (idxs.length < count) return null;
+  return takeIndices(deck, idxs);
+}
+
+/**
+ * Keep the locked cards. Redraw the free cards until the five-card hand is
+ * exactly the wanted type — anything stronger or weaker is thrown back.
+ */
+function completeWithExtras(deck, core, target, extraCount, blockedRanks) {
+  for (let attempt = 0; attempt < HAND_EXTRAS_TRIES; attempt++) {
+    const extras = takeDistinctKickers(deck, extraCount, blockedRanks);
+    if (!extras) return null;
+    const hand = core.concat(extras);
+    if (classifyHand(hand) === target) return hand;
+    returnCards(deck, extras);
+    shuffleDeck(deck);
+  }
+  return null;
 }
 
 function buildStraightFlush(deck) {
@@ -178,14 +204,17 @@ function buildStraightFlush(deck) {
           },
           0
         );
-        // Avoid reusing the same index if somehow duplicated — each rank once per suit.
         if (ix < 0 || idxs.indexOf(ix) >= 0) {
           ok = false;
           break;
         }
         idxs.push(ix);
       }
-      if (ok) return takeIndices(deck, idxs);
+      if (!ok) continue;
+      const trial = [];
+      for (let j = 0; j < 5; j++) trial.push(deck[idxs[j]]);
+      if (classifyHand(trial) !== HAND_STRAIGHT_FLUSH) continue;
+      return takeIndices(deck, idxs);
     }
   }
   return null;
@@ -205,7 +234,11 @@ function buildQuads(deck) {
       0
     );
     if (kicker < 0) continue;
-    return takeIndices(deck, four.concat([kicker]));
+    const pick = four.concat([kicker]);
+    const trial = [];
+    for (let i = 0; i < pick.length; i++) trial.push(deck[pick[i]]);
+    if (classifyHand(trial) !== HAND_QUADS) continue;
+    return takeIndices(deck, pick);
   }
   return null;
 }
@@ -220,7 +253,11 @@ function buildFullHouse(deck) {
       if (pairRank === tripRank) continue;
       const pairs = cardsOfRank(deck, pairRank);
       if (pairs.length < 2) continue;
-      return takeIndices(deck, trips.slice(0, 3).concat(pairs.slice(0, 2)));
+      const pick = trips.slice(0, 3).concat(pairs.slice(0, 2));
+      const trial = [];
+      for (let i = 0; i < pick.length; i++) trial.push(deck[pick[i]]);
+      if (classifyHand(trial) !== HAND_FULL_HOUSE) continue;
+      return takeIndices(deck, pick);
     }
   }
   return null;
@@ -231,16 +268,15 @@ function buildFlush(deck) {
     const suit = CARD_SUITS[s];
     const idxs = cardsOfSuit(deck, suit);
     if (idxs.length < 5) continue;
-    // Try combinations of 5 in deck order (first 5+ search) that are not a straight.
     for (let a = 0; a < idxs.length - 4; a++) {
       for (let b = a + 1; b < idxs.length - 3; b++) {
         for (let c = b + 1; c < idxs.length - 2; c++) {
           for (let d = c + 1; d < idxs.length - 1; d++) {
             for (let e = d + 1; e < idxs.length; e++) {
               const pick = [idxs[a], idxs[b], idxs[c], idxs[d], idxs[e]];
-              const vals = [];
-              for (let i = 0; i < 5; i++) vals.push(rankValue(deck[pick[i]].rank));
-              if (isStraightValues(vals)) continue;
+              const trial = [];
+              for (let i = 0; i < 5; i++) trial.push(deck[pick[i]]);
+              if (classifyHand(trial) !== HAND_FLUSH) continue;
               return takeIndices(deck, pick);
             }
           }
@@ -297,6 +333,7 @@ function buildStraight(deck) {
       for (let j = 0; j < 5; j++) trial.push(deck[idxs[j]]);
       if (sameSuit(trial)) continue;
     }
+    if (classifyHand(trial) !== HAND_STRAIGHT) continue;
     return takeIndices(deck, idxs);
   }
   return null;
@@ -305,24 +342,12 @@ function buildStraight(deck) {
 function buildTrips(deck) {
   for (let r = 0; r < CARD_RANKS.length; r++) {
     const rank = CARD_RANKS[r];
-    const trips = cardsOfRank(deck, rank);
-    if (trips.length < 3) continue;
-    const kickIdx = [];
-    const kickRanks = {};
-    for (let d = 0; d < deck.length && kickIdx.length < 2; d++) {
-      if (deck[d].rank === rank) continue;
-      if (kickRanks[deck[d].rank]) continue;
-      // Would this kicker set make a flush with the three? Check at the end.
-      kickRanks[deck[d].rank] = true;
-      kickIdx.push(d);
-    }
-    if (kickIdx.length < 2) continue;
-    const pick = trips.slice(0, 3).concat(kickIdx);
-    const trial = [];
-    for (let i = 0; i < pick.length; i++) trial.push(deck[pick[i]]);
-    if (sameSuit(trial)) continue;
-    if (classifyHand(trial) !== HAND_TRIPS) continue;
-    return takeIndices(deck, pick);
+    const idxs = cardsOfRank(deck, rank);
+    if (idxs.length < 3) continue;
+    const core = takeIndices(deck, idxs.slice(0, 3));
+    const hand = completeWithExtras(deck, core, HAND_TRIPS, 2, [rank]);
+    if (hand) return hand;
+    returnCards(deck, core);
   }
   return null;
 }
@@ -330,26 +355,16 @@ function buildTrips(deck) {
 function buildTwoPair(deck) {
   for (let r = 0; r < CARD_RANKS.length; r++) {
     const r1 = CARD_RANKS[r];
-    const p1 = cardsOfRank(deck, r1);
-    if (p1.length < 2) continue;
     for (let q = r + 1; q < CARD_RANKS.length; q++) {
       const r2 = CARD_RANKS[q];
+      const p1 = cardsOfRank(deck, r1);
+      if (p1.length < 2) break;
       const p2 = cardsOfRank(deck, r2);
       if (p2.length < 2) continue;
-      const kicker = findInDeck(
-        deck,
-        function (c) {
-          return c.rank !== r1 && c.rank !== r2;
-        },
-        0
-      );
-      if (kicker < 0) continue;
-      const pick = p1.slice(0, 2).concat(p2.slice(0, 2), [kicker]);
-      const trial = [];
-      for (let i = 0; i < pick.length; i++) trial.push(deck[pick[i]]);
-      if (sameSuit(trial)) continue;
-      if (classifyHand(trial) !== HAND_TWO_PAIR) continue;
-      return takeIndices(deck, pick);
+      const core = takeIndices(deck, p1.slice(0, 2).concat(p2.slice(0, 2)));
+      const hand = completeWithExtras(deck, core, HAND_TWO_PAIR, 1, [r1, r2]);
+      if (hand) return hand;
+      returnCards(deck, core);
     }
   }
   return null;
@@ -360,21 +375,10 @@ function buildPair(deck) {
     const rank = CARD_RANKS[r];
     const pairs = cardsOfRank(deck, rank);
     if (pairs.length < 2) continue;
-    const kickIdx = [];
-    const kickRanks = {};
-    for (let d = 0; d < deck.length && kickIdx.length < 3; d++) {
-      if (deck[d].rank === rank) continue;
-      if (kickRanks[deck[d].rank]) continue;
-      kickRanks[deck[d].rank] = true;
-      kickIdx.push(d);
-    }
-    if (kickIdx.length < 3) continue;
-    const pick = pairs.slice(0, 2).concat(kickIdx);
-    const trial = [];
-    for (let i = 0; i < pick.length; i++) trial.push(deck[pick[i]]);
-    if (sameSuit(trial)) continue;
-    if (classifyHand(trial) !== HAND_PAIR) continue;
-    return takeIndices(deck, pick);
+    const core = takeIndices(deck, pairs.slice(0, 2));
+    const hand = completeWithExtras(deck, core, HAND_PAIR, 3, [rank]);
+    if (hand) return hand;
+    returnCards(deck, core);
   }
   return null;
 }
@@ -414,7 +418,7 @@ function dealTypedHand(deck, discard, type) {
       for (let i = 0; i < hand.length; i++) discard.push(hand[i]);
       return hand;
     }
-    // Restore and reshuffle for another try.
+    // Put the shoe back and mix again for a full retry.
     deck.length = 0;
     for (let i = 0; i < snapshot.length; i++) deck.push(snapshot[i]);
     refillDeck(deck, discard);

@@ -200,7 +200,8 @@ function dealRound() {
     return;
   }
   hand = dealt;
-  answer = type;
+  // best hand type of the dealt cards is what the player must call
+  answer = classifyHand(hand);
   startTimer();
 }
 
