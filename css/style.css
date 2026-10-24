@@ -39,11 +39,24 @@ canvas {
   display: none;
 }
 
+#title-suits {
+  font: 700 clamp(36px, 11vw, 72px)/1 system-ui, sans-serif;
+  letter-spacing: 0.12em;
+}
+
+#title-suits .suit-black {
+  color: #111111;
+}
+
+#title-suits .suit-red {
+  color: #cc3333;
+}
+
 #title-screen h1 {
   margin: 0;
   font: 800 clamp(42px, 14vw, 96px)/1 system-ui, sans-serif;
   letter-spacing: 0.14em;
-  color: #f2f2f2;
+  color: #ffee99;
 }
 
 .title-actions {
@@ -100,7 +113,7 @@ canvas {
 #score {
   pointer-events: none;
   font: 700 clamp(18px, 4.2vw, 32px)/1 system-ui, sans-serif;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.12em;
   color: #f2f2f2;
   white-space: nowrap;
 }
