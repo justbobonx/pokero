@@ -1,4 +1,4 @@
-/** Hand types, weighted pick, classify, and deal-from-deck builders. */
+/** Hand types, weighted pick, classify, compare, and deal-from-deck builders. */
 
 const HAND_STRAIGHT_FLUSH = "straight_flush";
 const HAND_QUADS = "quads";
@@ -55,7 +55,24 @@ function randomHand() {
   return HAND_PAIR;
 }
 
-function classifyHand(cards) {
+const RANK_HI_WORDS = {
+  14: "Ace",
+  13: "King",
+  12: "Queen",
+  11: "Jack",
+  10: "10",
+  9: "9",
+  8: "8",
+  7: "7",
+  6: "6",
+  5: "5",
+  4: "4",
+  3: "3",
+  2: "2",
+};
+
+/** Type plus ordered ranks used to break ties (higher first). */
+function describeHand(cards) {
   if (!cards || cards.length !== 5) return null;
   const values = [];
   const suits = [];
@@ -85,20 +102,115 @@ function classifyHand(cards) {
   const uniq = [];
   for (let i = 0; i < 5; i++) if (uniq.indexOf(values[i]) < 0) uniq.push(values[i]);
   let straight = false;
+  let straightHi = 0;
   if (uniq.length === 5) {
-    if (uniq[4] - uniq[0] === 4) straight = true;
-    else if (uniq[0] === 2 && uniq[1] === 3 && uniq[2] === 4 && uniq[3] === 5 && uniq[4] === 14) straight = true;
+    if (uniq[4] - uniq[0] === 4) {
+      straight = true;
+      straightHi = uniq[4];
+    } else if (uniq[0] === 2 && uniq[1] === 3 && uniq[2] === 4 && uniq[3] === 5 && uniq[4] === 14) {
+      straight = true;
+      // wheel counts as five high
+      straightHi = 5;
+    }
   }
 
-  if (straight && flush) return HAND_STRAIGHT_FLUSH;
-  if (groups[0].n === 4) return HAND_QUADS;
-  if (groups[0].n === 3 && groups[1] && groups[1].n === 2) return HAND_FULL_HOUSE;
-  if (flush) return HAND_FLUSH;
-  if (straight) return HAND_STRAIGHT;
-  if (groups[0].n === 3) return HAND_TRIPS;
-  if (groups[0].n === 2 && groups[1] && groups[1].n === 2) return HAND_TWO_PAIR;
-  if (groups[0].n === 2) return HAND_PAIR;
-  return null;
+  let type = null;
+  let ranks = [];
+  if (straight && flush) {
+    type = HAND_STRAIGHT_FLUSH;
+    ranks = [straightHi];
+  } else if (groups[0].n === 4) {
+    type = HAND_QUADS;
+    ranks = [groups[0].v, groups[1].v];
+  } else if (groups[0].n === 3 && groups[1] && groups[1].n === 2) {
+    type = HAND_FULL_HOUSE;
+    ranks = [groups[0].v, groups[1].v];
+  } else if (flush) {
+    type = HAND_FLUSH;
+    ranks = values.slice().sort(function (a, b) {
+      return b - a;
+    });
+  } else if (straight) {
+    type = HAND_STRAIGHT;
+    ranks = [straightHi];
+  } else if (groups[0].n === 3) {
+    type = HAND_TRIPS;
+    ranks = [groups[0].v];
+    const kick = [];
+    for (let i = 1; i < groups.length; i++) kick.push(groups[i].v);
+    kick.sort(function (a, b) {
+      return b - a;
+    });
+    ranks = ranks.concat(kick);
+  } else if (groups[0].n === 2 && groups[1] && groups[1].n === 2) {
+    type = HAND_TWO_PAIR;
+    const hi = Math.max(groups[0].v, groups[1].v);
+    const lo = Math.min(groups[0].v, groups[1].v);
+    ranks = [hi, lo, groups[2].v];
+  } else if (groups[0].n === 2) {
+    type = HAND_PAIR;
+    ranks = [groups[0].v];
+    const kick = [];
+    for (let i = 1; i < groups.length; i++) kick.push(groups[i].v);
+    kick.sort(function (a, b) {
+      return b - a;
+    });
+    ranks = ranks.concat(kick);
+  } else {
+    return null;
+  }
+
+  let cat = 0;
+  for (let i = 0; i < HAND_TYPES.length; i++) {
+    if (HAND_TYPES[i] === type) {
+      cat = HAND_TYPES.length - i;
+      break;
+    }
+  }
+  return { type: type, cat: cat, ranks: ranks };
+}
+
+function classifyHand(cards) {
+  const d = describeHand(cards);
+  return d ? d.type : null;
+}
+
+/** Positive when the first hand wins, negative when the second wins, zero on a tie. */
+function compareHands(a, b) {
+  const da = describeHand(a);
+  const db = describeHand(b);
+  if (!da && !db) return 0;
+  if (!da) return -1;
+  if (!db) return 1;
+  if (da.cat !== db.cat) return da.cat - db.cat;
+  const n = Math.max(da.ranks.length, db.ranks.length);
+  for (let i = 0; i < n; i++) {
+    const va = da.ranks[i] || 0;
+    const vb = db.ranks[i] || 0;
+    if (va !== vb) return va - vb;
+  }
+  return 0;
+}
+
+/** Winning hand name; add hi tip only when another hand shares the type. */
+function formatWinnerLabel(winnerCards, allHands) {
+  const d = describeHand(winnerCards);
+  if (!d) return "";
+  let label = HAND_LABELS[d.type] || d.type;
+  let sameType = false;
+  for (let i = 0; i < allHands.length; i++) {
+    if (allHands[i] === winnerCards) continue;
+    const other = describeHand(allHands[i]);
+    if (other && other.type === d.type) {
+      sameType = true;
+      break;
+    }
+  }
+  if (sameType) {
+    const hi = RANK_HI_WORDS[d.ranks[0]] || String(d.ranks[0]);
+    label += ", " + hi + " Hi";
+  }
+  return label;
 }
 
 function takeAt(deck, i) {

@@ -249,3 +249,33 @@ canvas {
   letter-spacing: 0.08em;
   pointer-events: none;
 }
+
+
+#pick-label {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 2;
+  pointer-events: none;
+  text-align: center;
+  font: 700 clamp(18px, 4.5vw, 32px)/1.2 system-ui, sans-serif;
+  letter-spacing: 0.04em;
+  color: #ffee99;
+  text-shadow: 0 1px 2px #000000;
+  padding: 0 12px;
+}
+
+#pick-label[hidden] {
+  display: none;
+}
+
+/* pick mode: JS pins top under the card stack (timer then hand name) */
+body.mode-pick #timer {
+  bottom: auto;
+  transform: translate(-50%, 0);
+}
+
+body.mode-pick #pick-label {
+  bottom: auto;
+}
