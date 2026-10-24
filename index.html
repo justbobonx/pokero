@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>pokero</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        height: 100dvh;
+        overflow: hidden;
+        background: #0d3b2e;
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: #0d3b2e;
+        touch-action: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="board"></canvas>
+    <script src="js/card.js?v=0.1.0"></script>
+    <script src="js/pokero.js?v=0.1.0"></script>
+  </body>
+</html>
