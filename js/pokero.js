@@ -1,4 +1,4 @@
-/** Deal a five-card hand on a fullscreen canvas; tap for a new hand. */
+/** Identify mode: deal a weighted poker hand and guess its type. */
 
 const BOARD_BG = "#0d3b2e";
 const HAND_SIZE = 5;
@@ -6,16 +6,23 @@ const CARD_ASPECT = 2.5 / 3.5;
 const CARD_GAP = 10;
 const CARD_MAX_H = 280;
 const HAND_SIDE_PAD = 2;
+const BUTTON_ZONE = 0.34;
+const FEEDBACK_MS = 1000;
 
 const canvas = document.getElementById("board");
 const ctx = canvas.getContext("2d");
+const elChoices = document.getElementById("choices");
 
 let deck = [];
+let discard = [];
 let hand = [];
+let answer = null;
+let locked = false;
 let cardW = 0;
 let cardH = 0;
 let handX = 0;
 let handY = 0;
+let feedbackTimer = 0;
 
 function makeDeck() {
   const out = [];
@@ -27,29 +34,37 @@ function makeDeck() {
   return out;
 }
 
-function shuffle(cards) {
-  for (let i = cards.length - 1; i > 0; i--) {
-    const j = (Math.random() * (i + 1)) | 0;
-    const t = cards[i];
-    cards[i] = cards[j];
-    cards[j] = t;
-  }
+function resetShoe() {
+  deck = makeDeck();
+  discard = [];
+  shuffleDeck(deck);
 }
 
-function dealHand() {
-  if (deck.length < HAND_SIZE) {
-    deck = makeDeck();
-    shuffle(deck);
+function dealRound() {
+  locked = false;
+  clearFeedback();
+  const type = randomHand();
+  let dealt = dealTypedHand(deck, discard, type);
+  if (!dealt) {
+    resetShoe();
+    dealt = dealTypedHand(deck, discard, type);
   }
-  hand = [];
-  for (let i = 0; i < HAND_SIZE; i++) hand.push(deck.pop());
+  if (!dealt) {
+    // Last resort: still show something.
+    hand = [];
+    answer = HAND_PAIR;
+    return;
+  }
+  hand = dealt;
+  answer = type;
 }
 
 function layout() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
+  const topZone = canvas.height * (1 - BUTTON_ZONE);
   const usableW = canvas.width - HAND_SIDE_PAD * 2;
-  cardH = Math.min(CARD_MAX_H, Math.floor(canvas.height * 0.55));
+  cardH = Math.min(CARD_MAX_H, Math.floor(topZone * 0.7));
   cardW = Math.floor(cardH * CARD_ASPECT);
   const rowW = cardW * HAND_SIZE + CARD_GAP * (HAND_SIZE - 1);
   if (rowW > usableW) {
@@ -57,7 +72,7 @@ function layout() {
     cardH = Math.floor(cardW / CARD_ASPECT);
   }
   handX = Math.floor((canvas.width - (cardW * HAND_SIZE + CARD_GAP * (HAND_SIZE - 1))) / 2);
-  handY = Math.floor((canvas.height - cardH) / 2);
+  handY = Math.floor((topZone - cardH) / 2);
 }
 
 function draw() {
@@ -69,9 +84,48 @@ function draw() {
   }
 }
 
-function onTap() {
-  dealHand();
-  draw();
+function clearFeedback() {
+  const buttons = elChoices.querySelectorAll("button");
+  for (let i = 0; i < buttons.length; i++) {
+    buttons[i].classList.remove("right", "wrong", "answer");
+    buttons[i].disabled = false;
+  }
+}
+
+function onGuess(type, btn) {
+  if (locked || !answer) return;
+  locked = true;
+  const buttons = elChoices.querySelectorAll("button");
+  for (let i = 0; i < buttons.length; i++) buttons[i].disabled = true;
+  if (type === answer) {
+    btn.classList.add("right");
+  } else {
+    btn.classList.add("wrong");
+    const correct = elChoices.querySelector('button[data-hand="' + answer + '"]');
+    if (correct) correct.classList.add("answer");
+  }
+  if (feedbackTimer) clearTimeout(feedbackTimer);
+  feedbackTimer = setTimeout(function () {
+    feedbackTimer = 0;
+    dealRound();
+    layout();
+    draw();
+  }, FEEDBACK_MS);
+}
+
+function buildButtons() {
+  elChoices.innerHTML = "";
+  for (let i = 0; i < HAND_TYPES.length; i++) {
+    const type = HAND_TYPES[i];
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.dataset.hand = type;
+    btn.textContent = HAND_LABELS[type];
+    btn.addEventListener("click", function () {
+      onGuess(type, btn);
+    });
+    elChoices.appendChild(btn);
+  }
 }
 
 function onViewport() {
@@ -79,12 +133,10 @@ function onViewport() {
   draw();
 }
 
-dealHand();
+resetShoe();
+buildButtons();
+dealRound();
 layout();
 draw();
 
 window.addEventListener("resize", onViewport);
-canvas.addEventListener("pointerdown", function (e) {
-  e.preventDefault();
-  onTap();
-});
