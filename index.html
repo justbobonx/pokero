@@ -7,11 +7,29 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <title>pokero</title>
     <link rel="stylesheet" href="css/style.css?v=0.1.0" />
-
   </head>
   <body>
     <canvas id="board"></canvas>
-    <div id="choices"></div>
+
+    <div id="hud" hidden>
+      <button id="btn-back" type="button">←</button>
+      <div id="score"><span id="score-right">0</span> / <span id="score-wrong">0</span></div>
+    </div>
+
+    <div id="timer" hidden>
+      <span id="timer-fill"></span>
+    </div>
+
+    <div id="choices" hidden></div>
+
+    <div id="title-screen" class="overlay">
+      <h1>POKERO</h1>
+      <div class="title-actions">
+        <button id="btn-call" type="button">CALL IT</button>
+        <button id="btn-pick" type="button">PICK IT</button>
+      </div>
+    </div>
+
     <script src="js/card.js?v=0.1.0"></script>
     <script src="js/hand.js?v=0.1.0"></script>
     <script src="js/pokero.js?v=0.1.0"></script>
