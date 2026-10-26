@@ -216,7 +216,7 @@ canvas {
   width: 100%;
   margin: 0 auto;
   border-radius: 999px;
-  background: #c9a227;
+  background: #3a7bd5;
   transform-origin: center center;
   transform: scaleX(1);
 }
@@ -279,3 +279,13 @@ body.mode-pick #timer {
 body.mode-pick #pick-label {
   bottom: auto;
 }
+
+#pick-label .pick-next {
+  display: block;
+  margin-top: 4px;
+  font: 500 clamp(12px, 3vw, 18px)/1.2 system-ui, sans-serif;
+  letter-spacing: 0.06em;
+  color: #888888;
+  text-shadow: none;
+}
+

@@ -22,6 +22,11 @@ const MAX_HEARTS = 3;
 const HI_KEY = "pokero_call_hi";
 const HI_KEY_PICK = "pokero_pick_hi";
 
+const PICK_REVEAL_MS = 1500; // how long each new hand is shown before the next appears
+const PICK_ROUND_MS_START = 5000; // pick-phase countdown once all hands are shown
+const PICK_PHASE_REVEAL = "reveal";
+const PICK_PHASE_PICK = "pick";
+
 const PICK_ROWS_START = 2;
 const PICK_ROWS_MAX = 4;
 const PICK_BUMP_EVERY = 5;
@@ -29,10 +34,10 @@ const PICK_SAME_TYPE_CHANCE = 0.2;
 const PICK_DEAL_TRIES = 48;
 const PICK_BAR_LINE = CARD_EDGE_W * 3; // thick stroke behind each row
 const PICK_BAR_COLOR = CARD_EDGE;
-const PICK_UNDER_GAP = 12; // space from cards down to timer
+const PICK_GHOST_COLOR = "#082a20"; // darker board green slab where a hand will land
 const PICK_TIMER_H = 14;
 const PICK_LABEL_GAP = 8; // space from timer down to hand name
-const PICK_LABEL_H = 40;
+const PICK_LABEL_H = 56; // room for winner name plus tap hint
 const PICK_CHROME_PAD = 16; // breathing room under the hand name
 const PICK_HL_RIGHT = "#2f9e55";
 const PICK_HL_WRONG = "#b33a3a";
@@ -96,7 +101,13 @@ let pickWinner = -1;
 let pickRows = PICK_ROWS_START;
 let pickChoice = -1;
 let pickRowRects = [];
+let pickPhase = PICK_PHASE_PICK;
+let pickRevealIdx = -1;
+let revealTimer = 0;
+let pickWaitTap = false; // pick feedback waits for a tap instead of a timed advance
+let pickWaitAdvance = false; // whether that tap should deal the next round
 let cardGap = CARD_GAP; // current space between cards, set in layout()
+let lastRowGap = 0; // space between hand rows; also used under the bottom hand for the timer
 
 function loadHi() {
   const n = parseInt(localStorage.getItem(hiKey) || "0", 10);
@@ -142,12 +153,21 @@ function clearFeedback() {
   }
   if (elPickLabel) elPickLabel.textContent = "";
   pickChoice = -1;
+  pickWaitTap = false;
+  pickWaitAdvance = false;
 }
 
 function stopTimer() {
   if (timerRaf) {
     cancelAnimationFrame(timerRaf);
     timerRaf = 0;
+  }
+}
+
+function clearRevealTimer() {
+  if (revealTimer) {
+    clearTimeout(revealTimer);
+    revealTimer = 0;
   }
 }
 
@@ -159,6 +179,8 @@ function paintTimer(frac) {
 function tickTimer() {
   timerRaf = 0;
   if ((mode !== MODE_CALL && mode !== MODE_PICK) || locked || gameOver) return;
+  // pick countdown only runs once picking is unlocked
+  if (mode === MODE_PICK && pickPhase !== PICK_PHASE_PICK) return;
   const left = 1 - (Date.now() - roundStarted) / roundMs;
   paintTimer(left);
   if (left <= 0) {
@@ -186,6 +208,7 @@ function bumpRoundMs() {
 function endGame() {
   gameOver = true;
   locked = true;
+  clearRevealTimer();
   stopTimer();
   saveHi();
   paintHud();
@@ -195,18 +218,43 @@ function endGame() {
   }
 }
 
+function runAfterRoundAdvance(advance) {
+  if (mode !== MODE_CALL && mode !== MODE_PICK) return;
+  if (gameOver || !advance) return;
+  decayRoundMs();
+  if (mode === MODE_PICK) dealPickRound();
+  else dealRound();
+  layout();
+  draw();
+}
+
 function afterRound(advance) {
-  if (feedbackTimer) clearTimeout(feedbackTimer);
+  if (feedbackTimer) {
+    clearTimeout(feedbackTimer);
+    feedbackTimer = 0;
+  }
+  // pick mode: stay on the answer until the player taps; call mode keeps the timed pause
+  if (mode === MODE_PICK) {
+    pickWaitAdvance = advance;
+    // arm after this pointer ends so the same tap that locked the row does not advance
+    setTimeout(function () {
+      if (mode !== MODE_PICK || !locked) return;
+      pickWaitTap = true;
+    }, 0);
+    return;
+  }
   feedbackTimer = setTimeout(function () {
     feedbackTimer = 0;
-    if (mode !== MODE_CALL && mode !== MODE_PICK) return;
-    if (gameOver || !advance) return;
-    decayRoundMs();
-    if (mode === MODE_PICK) dealPickRound();
-    else dealRound();
-    layout();
-    draw();
+    runAfterRoundAdvance(advance);
   }, FEEDBACK_MS);
+}
+
+function onPickFeedbackTap() {
+  if (!pickWaitTap) return;
+  pickWaitTap = false;
+  const advance = pickWaitAdvance;
+  pickWaitAdvance = false;
+  runAfterRoundAdvance(advance);
 }
 
 function registerMiss() {
@@ -236,9 +284,12 @@ function onTimeout() {
     return;
   }
   if (mode === MODE_PICK) {
+    if (pickPhase !== PICK_PHASE_PICK) return;
     if (pickWinner < 0) return;
     locked = true;
+    clearRevealTimer();
     stopTimer();
+    elTimer.hidden = true;
     pickChoice = -1;
     showPickWinnerLabel();
     draw();
@@ -291,13 +342,61 @@ function findStrictWinner(hands) {
   return best;
 }
 
+// after the last hand's beat: show the blue timer and start the countdown
+// (skipped if the player already tapped a row during that beat)
+function beginPickCountdown() {
+  if (mode !== MODE_PICK || gameOver || locked) return;
+  clearRevealTimer();
+  elTimer.hidden = false;
+  paintTimer(1);
+  startTimer();
+}
+
+function revealNextHand() {
+  if (mode !== MODE_PICK || gameOver) return;
+  pickRevealIdx += 1;
+  // last hand on screen: picking is live right away; timer still waits one beat
+  if (pickRevealIdx >= pickHands.length - 1) {
+    pickPhase = PICK_PHASE_PICK;
+    pickRevealIdx = pickHands.length - 1;
+    draw();
+    revealTimer = setTimeout(function () {
+      revealTimer = 0;
+      beginPickCountdown();
+    }, PICK_REVEAL_MS);
+    return;
+  }
+  draw();
+  revealTimer = setTimeout(function () {
+    revealTimer = 0;
+    revealNextHand();
+  }, PICK_REVEAL_MS);
+}
+
+function startPickReveal() {
+  clearRevealTimer();
+  stopTimer();
+  elTimer.hidden = true;
+  paintTimer(1);
+  pickPhase = PICK_PHASE_REVEAL;
+  pickRevealIdx = -1;
+  if (!pickHands.length) {
+    pickPhase = PICK_PHASE_PICK;
+    return;
+  }
+  revealNextHand();
+}
+
 function dealPickRound() {
   if (gameOver) return;
   locked = false;
+  clearRevealTimer();
   clearFeedback();
   pickHands = [];
   pickWinner = -1;
   pickChoice = -1;
+  pickPhase = PICK_PHASE_REVEAL;
+  pickRevealIdx = -1;
 
   const n = pickRows;
   for (let attempt = 0; attempt < PICK_DEAL_TRIES; attempt++) {
@@ -340,16 +439,25 @@ function dealPickRound() {
     }
     pickHands = hands;
     pickWinner = win;
-    startTimer();
+    startPickReveal();
     return;
   }
   pickHands = [];
   pickWinner = -1;
+  pickPhase = PICK_PHASE_PICK;
+  pickRevealIdx = -1;
 }
 
 function showPickWinnerLabel() {
   if (!elPickLabel || pickWinner < 0 || !pickHands[pickWinner]) return;
-  elPickLabel.textContent = formatWinnerLabel(pickHands[pickWinner], pickHands);
+  elPickLabel.textContent = "";
+  const name = document.createElement("div");
+  name.textContent = formatWinnerLabel(pickHands[pickWinner], pickHands);
+  const hint = document.createElement("div");
+  hint.className = "pick-next";
+  hint.textContent = "tap for next";
+  elPickLabel.appendChild(name);
+  elPickLabel.appendChild(hint);
 }
 
 function maybeBumpPickRows() {
@@ -361,10 +469,12 @@ function maybeBumpPickRows() {
 }
 
 function onPickRow(row) {
-  if (mode !== MODE_PICK || locked || gameOver || pickWinner < 0) return;
+  if (mode !== MODE_PICK || pickPhase !== PICK_PHASE_PICK || locked || gameOver || pickWinner < 0) return;
   if (row < 0 || row >= pickHands.length) return;
   locked = true;
+  clearRevealTimer();
   stopTimer();
+  elTimer.hidden = true;
   pickChoice = row;
   showPickWinnerLabel();
   if (row === pickWinner) {
@@ -412,18 +522,19 @@ function layout() {
   }
 
   if (mode === MODE_PICK) {
-    // room under the stack for timer + hand name
-    const bottomZone =
-      PICK_UNDER_GAP + PICK_TIMER_H + PICK_LABEL_GAP + PICK_LABEL_H + PICK_CHROME_PAD;
     // highlight outline sits just outside the cards, small margin so it hugs them
     const hlPad = Math.max(3, Math.round(cardGap * 0.4));
+    // space between rows: room for both rows' outlines plus clear air between them
+    const rowGap = cardGap * 3 + hlPad * 2;
+    lastRowGap = rowGap;
+    // room under the stack for timer + hand name (timer gap matches row gap)
+    const bottomZone =
+      rowGap + PICK_TIMER_H + PICK_LABEL_GAP + PICK_LABEL_H + PICK_CHROME_PAD;
     const sidePad = hlPad;
     const vertPad = hlPad;
     const usableW = canvas.width - HAND_SIDE_PAD * 2 - sidePad * 2;
     const usableH = canvas.height - HUD_PAD - bottomZone;
     const n = Math.max(pickHands.length, pickRows);
-    // space between rows: room for both rows' outlines plus clear air between them
-    const rowGap = cardGap * 3 + hlPad * 2;
     const gaps = rowGap * Math.max(0, n - 1);
     cardH = Math.min(CARD_MAX_H, Math.floor((usableH - gaps) / Math.max(1, n)));
     cardW = Math.floor(cardH * CARD_ASPECT);
@@ -504,7 +615,8 @@ function positionPickChrome() {
   }
   const last = pickRowRects[pickRowRects.length - 1];
   const cardsBottom = last.cardY + cardH;
-  const timerTop = cardsBottom + PICK_UNDER_GAP;
+  const underGap = lastRowGap > 0 ? lastRowGap : cardGap * 3;
+  const timerTop = cardsBottom + underGap;
   elTimer.style.top = timerTop + "px";
   elTimer.style.bottom = "auto";
   if (elPickLabel) {
@@ -552,6 +664,12 @@ function draw() {
     for (let i = 0; i < pickHands.length; i++) {
       const rect = pickRowRects[i];
       if (!rect) continue;
+      // empty slots keep the grey mid-line and faint card shadows until that hand lands
+      if (i > pickRevealIdx) {
+        drawPickRowBar(rect, null);
+        drawGhostRow(rect);
+        continue;
+      }
       drawPickRowBar(rect, pickRowHighlight(i));
       const row = pickHands[i];
       for (let c = 0; c < row.length; c++) {
@@ -561,11 +679,23 @@ function draw() {
   }
 }
 
+function drawGhostRow(rect) {
+  // one long rounded slab covering where the five cards will sit
+  const rad = Math.max(4, Math.floor(Math.min(cardW, cardH) * CARD_CORNER));
+  const rowW = (HAND_SIZE - 1) * cardStep(cardW) + cardW;
+  ctx.fillStyle = PICK_GHOST_COLOR;
+  drawRoundRectPath(handX, rect.cardY, rowW, cardH, rad);
+  ctx.fill();
+}
+
 function showTitle() {
   if (feedbackTimer) {
     clearTimeout(feedbackTimer);
     feedbackTimer = 0;
   }
+  clearRevealTimer();
+  pickWaitTap = false;
+  pickWaitAdvance = false;
   mode = MODE_TITLE;
   locked = false;
   gameOver = false;
@@ -574,6 +704,8 @@ function showTitle() {
   pickHands = [];
   pickWinner = -1;
   pickChoice = -1;
+  pickPhase = PICK_PHASE_PICK;
+  pickRevealIdx = -1;
   stopTimer();
   elTitle.hidden = false;
   elHud.hidden = true;
@@ -590,6 +722,7 @@ function showTitle() {
 }
 
 function startCallIt() {
+  clearRevealTimer();
   mode = MODE_CALL;
   hiKey = HI_KEY;
   score = 0;
@@ -598,6 +731,8 @@ function startCallIt() {
   roundMs = ROUND_MS_START;
   pickHands = [];
   pickWinner = -1;
+  pickPhase = PICK_PHASE_PICK;
+  pickRevealIdx = -1;
   loadHi();
   paintHud();
   resetShoe();
@@ -617,13 +752,16 @@ function startCallIt() {
 }
 
 function startPickIt() {
+  clearRevealTimer();
   mode = MODE_PICK;
   hiKey = HI_KEY_PICK;
   score = 0;
   hearts = MAX_HEARTS;
   gameOver = false;
-  roundMs = ROUND_MS_START;
+  roundMs = PICK_ROUND_MS_START;
   pickRows = PICK_ROWS_START;
+  pickPhase = PICK_PHASE_REVEAL;
+  pickRevealIdx = -1;
   hand = [];
   answer = null;
   loadHi();
@@ -632,7 +770,7 @@ function startPickIt() {
   elTitle.hidden = true;
   elHud.hidden = false;
   elChoices.hidden = true;
-  elTimer.hidden = false;
+  elTimer.hidden = true;
   if (elPickLabel) {
     elPickLabel.hidden = false;
     elPickLabel.textContent = "";
@@ -686,7 +824,11 @@ function onViewport() {
 }
 
 function onBoardPointer(e) {
-  if (mode !== MODE_PICK || locked || gameOver) return;
+  if (mode === MODE_PICK && pickWaitTap) {
+    onPickFeedbackTap();
+    return;
+  }
+  if (mode !== MODE_PICK || pickPhase !== PICK_PHASE_PICK || locked || gameOver) return;
   const rect = canvas.getBoundingClientRect();
   const scaleX = canvas.width / rect.width;
   const scaleY = canvas.height / rect.height;
@@ -704,5 +846,12 @@ elBack.addEventListener("click", showTitle);
 elCall.addEventListener("click", startCallIt);
 elPick.addEventListener("click", startPickIt);
 canvas.addEventListener("pointerdown", onBoardPointer);
+document.body.addEventListener("pointerdown", function (e) {
+  if (!pickWaitTap || mode !== MODE_PICK) return;
+  if (e.target && e.target.closest && e.target.closest("#btn-back, #title-screen")) return;
+  // the board surface already handles those taps
+  if (e.target === canvas) return;
+  onPickFeedbackTap();
+});
 
 window.addEventListener("resize", onViewport);
